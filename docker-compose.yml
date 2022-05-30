@@ -1,0 +1,36 @@
+version: '2.1'
+services:
+  # jobmanager:
+  #   image: flink-cdc:1
+  #   build: ./flink
+  #   ports:
+  #     - "8081:8081"
+  #   command: jobmanager
+  #   environment:
+  #     - |
+  #       FLINK_PROPERTIES=
+  #       jobmanager.rpc.address: jobmanager
+  #       classloader.resolve-order: parent-first
+  # taskmanager:
+  #   image: flink:latest
+  #   depends_on:
+  #     - jobmanager
+  #   command: taskmanager
+  #   scale: 1
+  #   environment:
+  #     - |
+  #       FLINK_PROPERTIES=
+  #       jobmanager.rpc.address: jobmanager
+  #       classloader.resolve-order: parent-first
+  #       taskmanager.numberOfTaskSlots: 2        
+  mysql:
+    image: mysql:5.7
+    command: --server-id=1 --log-bin=/var/lib/mysql/mysql-bin.log --binlog_do_db=demo --binlog_format=row --expire_logs_days=1
+    environment:
+      MYSQL_DATABASE: "demo"
+      MYSQL_ROOT_PASSWORD: "123456"
+    volumes:
+      - ./init-sql:/docker-entrypoint-initdb.d
+      # - ./data:/var/lib/mysql
+    ports:
+      - "3306:3306"
