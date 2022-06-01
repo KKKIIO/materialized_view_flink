@@ -3,7 +3,7 @@ package io.github.kkkiio.mview;
 import lombok.Value;
 
 @Value
-public class CustomerChange {
+public class Customer {
     long id;
     String firstName;
     String lastName;
