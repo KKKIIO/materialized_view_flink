@@ -1,7 +1,5 @@
 package io.github.kkkiio.mview;
 
-import com.ververica.cdc.connectors.mysql.source.MySqlSource;
-
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
 import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
@@ -10,6 +8,8 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
+
+import com.ververica.cdc.connectors.mysql.source.MySqlSource;
 
 import lombok.val;
 
@@ -29,7 +29,7 @@ public class FlinkJob {
 				.hostname(mysqlHost)
 				.port(mysqlPort)
 				.databaseList(mysqlDb)
-				.tableList("demo.customer_tab", "demo.order_tab")
+				.tableList("demo.customer_tab", "demo.order_tab", "demo.customer_preference_tab")
 				.username(mysqlUser)
 				.password(mysqlPassword)
 				.deserializer(new ChangeDeserializer())
@@ -59,13 +59,11 @@ public class FlinkJob {
 				.withPassword(mysqlPassword)
 				.build();
 		mainStream.getSideOutput(customerTag).addSink(JdbcSink.sink(
-						"INSERT INTO customer_reorder_tab (customer_id, first_name, last_name) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE first_name = ?, last_name = ?",
+				"INSERT INTO customer_reorder_tab (customer_id, first_name, last_name) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE first_name=VALUES(first_name), last_name=VALUES(last_name)",
 						(statement, customer) -> {
 							statement.setLong(1, customer.getId());
 							statement.setString(2, customer.getFirstName());
-							statement.setString(3, customer.getLastName());
-							statement.setString(4, customer.getFirstName());
-							statement.setString(5, customer.getLastName());
+					statement.setString(3, customer.getLastName());
 						},
 				JdbcExecutionOptions.builder().withBatchIntervalMs(200).build(), jdbcConnOpts))
 				.name("MySQL Customer Sink")
@@ -73,21 +71,22 @@ public class FlinkJob {
 		mainStream.keyBy(c -> {
 			if (c.getOrder() != null) {
 				return c.getOrder().getCustomerId();
+			} else if (c.getCustomerPreference() != null) {
+				return c.getCustomerPreference().getCustomerId();
 			} else {
 				throw new IllegalArgumentException(String.format("Unknown change type: %s", c));
 			}
 		}).map(new ReorderCalc()).name("Calculate reorder info").addSink(
 				JdbcSink.sink(
-						"INSERT INTO customer_reorder_tab (customer_id, order_count, last_order_time) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE order_count = ?, last_order_time = ?",
+						"INSERT INTO customer_reorder_tab (customer_id, order_count, last_order_time, expected_next_order_time) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE order_count=VALUES(order_count), last_order_time=VALUES(last_order_time), expected_next_order_time=VALUES(expected_next_order_time)",
 						(statement, reorder) -> {
 							statement.setLong(1, reorder.getCustomerId());
 							statement.setInt(2, reorder.getOrderCount());
 							statement.setLong(3, reorder.getLastOrderTime());
-							statement.setInt(4, reorder.getOrderCount());
-							statement.setLong(5, reorder.getLastOrderTime());
+							statement.setLong(4, reorder.getExpectedNextOrderTime());
 						},
 						JdbcExecutionOptions.builder().withBatchIntervalMs(200).build(), jdbcConnOpts))
-				.name("MySQL Customer Reorder Sink");
+				.name("MySQL ReorderInfo Sink");
 		env.execute("Sync Reorder");
 	}
 }

@@ -6,4 +6,5 @@ import lombok.Value;
 public class Change {
     Customer customer;
     Order order;
+    CustomerPreference customerPreference;
 }

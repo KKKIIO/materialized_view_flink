@@ -7,53 +7,76 @@ import org.apache.flink.api.common.state.AggregatingStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.configuration.Configuration;
 
+import lombok.Value;
 import lombok.val;
 
-public class ReorderCalc extends RichMapFunction<Change, ReorderCalcValue> {
+public class ReorderCalc extends RichMapFunction<Change, ReorderInfo> {
     private static final long serialVersionUID = 1L;
-    private transient AggregatingState<Change, ReorderCalcValue> reorderState;
+    private transient AggregatingState<Change, ReorderState> reorderState;
+    private static final long DAY_IN_MILLIS = 1000L * 60L * 60L * 24L;
+
+    @Value
+    private static class ReorderState {
+        int orderCount;
+        long lastOrderTime;
+        int frequency;
+    }
 
     @Override
     public void open(Configuration parameters) throws Exception {
-        val descriptor = new AggregatingStateDescriptor<Change, ReorderCalcValue, ReorderCalcValue>("reorder",
-                new AggregateFunction<Change, ReorderCalcValue, ReorderCalcValue>() {
-
+        AggregatingStateDescriptor<Change, ReorderState, ReorderState> descriptor = new AggregatingStateDescriptor<>(
+                "reorder",
+                new AggregateFunction<Change, ReorderState, ReorderState>() {
                     @Override
-                    public ReorderCalcValue createAccumulator() {
-                        return ReorderCalcValue.builder().build();
+                    public ReorderState createAccumulator() {
+                        return new ReorderState(0, 0, 0);
                     }
 
                     @Override
-                    public ReorderCalcValue add(Change value, ReorderCalcValue accumulator) {
-                        accumulator.setCustomerId(value.getOrder().getCustomerId());
-                        accumulator.setLastOrderTime(
-                                Math.max(accumulator.getLastOrderTime(),
-                                        value.getOrder().getOrderTime()));
-                        accumulator.setOrderCount(accumulator.getOrderCount() + 1);
+                    public ReorderState add(Change value, ReorderState accumulator) {
+                        if (value.getOrder() != null) {
+                            return new ReorderState(
+                                    accumulator.getOrderCount() + 1,
+                                    Math.max(accumulator.getLastOrderTime(), value.getOrder().getOrderTime()),
+                                    accumulator.getFrequency());
+                        } else {
+                            return new ReorderState(
+                                    accumulator.getOrderCount(),
+                                    accumulator.getLastOrderTime(),
+                                    value.getCustomerPreference().getFrequency());
+                        }
+                    }
+
+                    @Override
+                    public ReorderState getResult(ReorderState accumulator) {
                         return accumulator;
                     }
 
                     @Override
-                    public ReorderCalcValue getResult(ReorderCalcValue accumulator) {
-                        return accumulator.toBuilder().build();
-                    }
-
-                    @Override
-                    public ReorderCalcValue merge(ReorderCalcValue a, ReorderCalcValue b) {
+                    public ReorderState merge(ReorderState a, ReorderState b) {
                         // merge will not be called, see
                         // https://stackoverflow.com/questions/57943469/flink-valuestate-vs-reducingstate-aggregatingstate
-                        return a.toBuilder().orderCount(a.getOrderCount() + b.getOrderCount())
-                                .lastOrderTime(Math.max(a.getLastOrderTime(), b.getLastOrderTime()))
-                                .build();
+                        throw new UnsupportedOperationException();
                     }
-                }, TypeInformation.of(ReorderCalcValue.class));
+                }, TypeInformation.of(ReorderState.class));
         this.reorderState = this.getRuntimeContext()
                 .getAggregatingState(descriptor);
     }
 
     @Override
-    public ReorderCalcValue map(Change value) throws Exception {
+    public ReorderInfo map(Change value) throws Exception {
         this.reorderState.add(value);
-        return this.reorderState.get();
+        val state = this.reorderState.get();
+        long customerId;
+        if (value.getOrder() != null) {
+            customerId = value.getOrder().getCustomerId();
+        } else {
+            customerId = value.getCustomerPreference().getCustomerId();
+        }
+        long expectedNextOrderTime = state.getLastOrderTime();
+        if (state.getFrequency() > 0) {
+            expectedNextOrderTime += state.getFrequency() * DAY_IN_MILLIS;
+        }
+        return new ReorderInfo(customerId, state.getOrderCount(), state.getLastOrderTime(), expectedNextOrderTime);
     }
 }

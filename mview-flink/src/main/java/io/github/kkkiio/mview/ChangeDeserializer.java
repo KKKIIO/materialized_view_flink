@@ -31,11 +31,15 @@ public class ChangeDeserializer implements DebeziumDeserializationSchema<Change>
             switch (table) {
                 case "customer_tab":
                     change = new Change(new Customer(newValue.getInt64("id"), newValue.getString("first_name"),
-                            newValue.getString("last_name")), null);
+                            newValue.getString("last_name")), null, null);
                     break;
                 case "order_tab":
                     change = new Change(null, new Order(newValue.getInt64("id"), newValue.getInt64("customer_id"),
-                            newValue.getInt64("order_time"), newValue.getInt64("create_time")));
+                            newValue.getInt64("order_time"), newValue.getInt64("create_time")), null);
+                    break;
+                case "customer_preference_tab":
+                    change = new Change(null, null, new CustomerPreference(newValue.getInt64("customer_id"),
+                            newValue.getInt32("frequency")));
                     break;
                 default:
                     throw new IllegalArgumentException(String.format("Unknown table %s, payload: %s", table, payload));

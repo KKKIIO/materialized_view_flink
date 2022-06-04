@@ -19,5 +19,5 @@ CREATE TABLE `customer_reorder_tab` (
     last_name VARCHAR(256) NOT NULL DEFAULT '',
     order_count INT NOT NULL DEFAULT '0',
     last_order_time BIGINT NOT NULL DEFAULT '0',
-    expect_next_order_time BIGINT NOT NULL DEFAULT '0'
+    expected_next_order_time BIGINT NOT NULL DEFAULT '0'
 );

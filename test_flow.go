@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/brianvoe/gofakeit/v6"
-	"golang.org/x/exp/maps"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -21,9 +20,13 @@ type Customer struct {
 	FirstName     string
 	LastName      string
 	Freq          int
+	FirstOrderDay int
 	NextOrderDay  int
-	OrderCount    int
-	LastOrderTime int64
+	TestData      struct {
+		OrderCount            int
+		LastOrderTime         int64
+		ExpectedNextOrderTime int64
+	}
 }
 
 func main() {
@@ -64,11 +67,13 @@ func main() {
 		newCustomerCount := random.Intn(100)
 		for i := 0; i < newCustomerCount; i++ {
 			newCustomer := faker.Person()
+			firstOrderDay := day + random.Intn(5)
 			customers = append(customers, &Customer{
-				FirstName:    newCustomer.FirstName,
-				LastName:     newCustomer.LastName,
-				Freq:         3 + random.Intn(10),
-				NextOrderDay: day + random.Intn(5),
+				FirstName:     newCustomer.FirstName,
+				LastName:      newCustomer.LastName,
+				Freq:          3 + random.Intn(10),
+				FirstOrderDay: firstOrderDay,
+				NextOrderDay:  firstOrderDay,
 			})
 		}
 		random.Shuffle(len(customers), func(i, j int) {
@@ -91,23 +96,31 @@ func main() {
 			if day+3 >= c.NextOrderDay {
 				orderTime := startDay.AddDate(0, 0, c.NextOrderDay)
 				createTime := startDay.AddDate(0, 0, day)
-				_, err := conn.ExecContext(ctx, "INSERT INTO order_tab (customer_id, order_time, create_time) VALUES (?, ?, ?)", c.Id, orderTime.UnixMilli(), createTime.UnixMilli())
-				if err != nil {
+				if _, err := conn.ExecContext(ctx, "INSERT INTO order_tab (customer_id, order_time, create_time) VALUES (?, ?, ?)", c.Id, orderTime.UnixMilli(), createTime.UnixMilli()); err != nil {
 					log.Fatal(err)
 				}
+				c.TestData.OrderCount += 1
+				calcFreq := (c.NextOrderDay - c.FirstOrderDay) / c.TestData.OrderCount
 				c.NextOrderDay = c.NextOrderDay + c.Freq + random.Intn(5) - 2
-				c.OrderCount += 1
-				c.LastOrderTime = orderTime.UnixMilli()
+				c.TestData.LastOrderTime = orderTime.UnixMilli()
+				if calcFreq > 0 {
+					c.TestData.ExpectedNextOrderTime = orderTime.AddDate(0, 0, calcFreq).UnixMilli()
+				}
 				newOrderCount++
+				if _, err := conn.ExecContext(ctx, "INSERT INTO customer_preference_tab (customer_id, frequency) VALUES (?, ?) ON DUPLICATE KEY UPDATE frequency=VALUES(frequency)", c.Id, calcFreq); err != nil {
+					log.Fatal(err)
+				}
 			}
 		}
 		log.Printf("new customer count: %d, new order count: %d\n", newCustomerCount, newOrderCount)
+		waitTime := 3 * time.Second
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(waitTime):
 		}
 		chunkSize := 100
+		mismatchCount := 0
 		for i := 0; i < len(customers); i += chunkSize {
 			end := i + chunkSize
 			if end > len(customers) {
@@ -121,25 +134,28 @@ func main() {
 				placeholders[j-i] = "?"
 				idSet[customers[j].Id] = true
 			}
-			sql := "SELECT customer_id, first_name, last_name, order_count, last_order_time FROM customer_reorder_tab WHERE customer_id IN (" + strings.Join(placeholders, ",") + ")"
+			sql := "SELECT customer_id, first_name, last_name, order_count, last_order_time, expected_next_order_time FROM customer_reorder_tab WHERE customer_id IN (" + strings.Join(placeholders, ",") + ")"
 			rows, err := conn.QueryContext(ctx, sql, ids...)
 			if err != nil {
 				log.Fatal(err)
 			}
 			var row Customer
 			for rows.Next() {
-				if err := rows.Scan(&row.Id, &row.FirstName, &row.LastName, &row.OrderCount, &row.LastOrderTime); err != nil {
+				if err := rows.Scan(&row.Id, &row.FirstName, &row.LastName, &row.TestData.OrderCount, &row.TestData.LastOrderTime, &row.TestData.ExpectedNextOrderTime); err != nil {
 					log.Fatal(err)
 				}
 				c := customerMap[row.Id]
-				if c.FirstName != row.FirstName || c.LastName != c.LastName || c.OrderCount != row.OrderCount || c.LastOrderTime != row.LastOrderTime {
-					log.Fatalf("%+v != %+v", c, row)
+				if c.FirstName != row.FirstName ||
+					c.LastName != c.LastName ||
+					c.TestData.OrderCount != row.TestData.OrderCount ||
+					c.TestData.LastOrderTime != row.TestData.LastOrderTime ||
+					c.TestData.ExpectedNextOrderTime != row.TestData.ExpectedNextOrderTime {
+					mismatchCount++
 				}
 				delete(idSet, row.Id)
 			}
-			if len(idSet) > 0 {
-				log.Fatalf("some customer_reorder info not found: %+v", maps.Keys(idSet))
-			}
+			mismatchCount += len(idSet)
 		}
+		log.Printf("after waiting %v, mismatch count: %d\n", waitTime, mismatchCount)
 	}
 }
