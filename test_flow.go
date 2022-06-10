@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -30,6 +32,14 @@ type Customer struct {
 }
 
 func main() {
+	var lag int
+	var printMismatch bool
+	flag.IntVar(&lag, "lag", 3, "lag in seconds")
+	flag.BoolVar(&printMismatch, "print-mismatch", false, "print mismatches")
+	if lag < 0 {
+		flag.Usage()
+		return
+	}
 	seed := time.Now().UnixNano()
 	faker := gofakeit.New(seed)
 	random := rand.New(rand.NewSource(seed))
@@ -113,14 +123,16 @@ func main() {
 			}
 		}
 		log.Printf("new customer count: %d, new order count: %d\n", newCustomerCount, newOrderCount)
-		waitTime := 3 * time.Second
+		waitTime := time.Duration(lag) * time.Second
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(waitTime):
 		}
 		chunkSize := 100
-		mismatchCount := 0
+		var mismatchCount int
+		sampleSize := 10
+		mismatchSamples := make([]string, 0, sampleSize)
 		for i := 0; i < len(customers); i += chunkSize {
 			end := i + chunkSize
 			if end > len(customers) {
@@ -145,17 +157,44 @@ func main() {
 					log.Fatal(err)
 				}
 				c := customerMap[row.Id]
-				if c.FirstName != row.FirstName ||
-					c.LastName != c.LastName ||
-					c.TestData.OrderCount != row.TestData.OrderCount ||
-					c.TestData.LastOrderTime != row.TestData.LastOrderTime ||
-					c.TestData.ExpectedNextOrderTime != row.TestData.ExpectedNextOrderTime {
+				var mismatch string
+				if c.FirstName != row.FirstName {
+					mismatch = fmt.Sprintf("#%d, exp.FirstName(%s)!=row.FirstName(%s)", row.Id, c.FirstName, row.FirstName)
+				} else if c.LastName != row.LastName {
+					mismatch = fmt.Sprintf("#%d, exp.LastName(%s)!=row.LastName(%s)", row.Id, c.LastName, row.LastName)
+				} else if c.TestData.OrderCount != row.TestData.OrderCount {
+					mismatch = fmt.Sprintf("#%d, exp.OrderCount(%d)!=row.OrderCount(%d)", row.Id, c.TestData.OrderCount, row.TestData.OrderCount)
+				} else if c.TestData.LastOrderTime != row.TestData.LastOrderTime {
+					mismatch = fmt.Sprintf("#%d, exp.LastOrderTime(%d)!=row.LastOrderTime(%d)", row.Id, c.TestData.LastOrderTime, row.TestData.LastOrderTime)
+				} else if c.TestData.ExpectedNextOrderTime != row.TestData.ExpectedNextOrderTime {
+					mismatch = fmt.Sprintf("#%d, exp.ExpectedNextOrderTime(%d)!=row.ExpectedNextOrderTime(%d)", row.Id, c.TestData.ExpectedNextOrderTime, row.TestData.ExpectedNextOrderTime)
+				}
+				if mismatch != "" {
 					mismatchCount++
+					if len(mismatchSamples) < sampleSize {
+						mismatchSamples = append(mismatchSamples, mismatch)
+					} else if i := random.Intn(mismatchCount); i < sampleSize {
+						mismatchSamples[i] = mismatch
+					}
 				}
 				delete(idSet, row.Id)
 			}
-			mismatchCount += len(idSet)
+			for k := range idSet {
+				mismatchCount++
+				mismatch := fmt.Sprintf("#%d, not found", k)
+				if len(mismatchSamples) < sampleSize {
+					mismatchSamples = append(mismatchSamples, mismatch)
+				} else if i := random.Intn(mismatchCount); i < sampleSize {
+					mismatchSamples[i] = mismatch
+				}
+			}
 		}
 		log.Printf("after waiting %v, mismatch count: %d\n", waitTime, mismatchCount)
+		if len(mismatchSamples) > 0 {
+			log.Printf("mismatch samples:\n")
+			for _, s := range mismatchSamples {
+				log.Printf("%s\n", s)
+			}
+		}
 	}
 }
