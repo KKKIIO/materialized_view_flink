@@ -53,7 +53,8 @@ public class FlinkJob {
 			}
 		});
 		val jdbcConnOpts = new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
-				.withUrl(String.format("jdbc:mysql://%s:%d/%s", mysqlHost, mysqlPort, mysqlDb))
+				.withUrl(String.format("jdbc:mysql://%s:%d/%s?useServerPrepStmts=false&rewriteBatchedStatements=true",
+						mysqlHost, mysqlPort, mysqlDb))
 				.withDriverName("com.mysql.cj.jdbc.Driver")
 				.withUsername(mysqlUser)
 				.withPassword(mysqlPassword)
@@ -66,8 +67,7 @@ public class FlinkJob {
 					statement.setString(3, customer.getLastName());
 						},
 				JdbcExecutionOptions.builder().withBatchIntervalMs(200).build(), jdbcConnOpts))
-				.name("MySQL Customer Sink")
-				.setParallelism(1);
+				.name("MySQL Customer Sink");
 		mainStream.keyBy(c -> {
 			if (c.getOrder() != null) {
 				return c.getOrder().getCustomerId();

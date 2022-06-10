@@ -36,7 +36,7 @@ public class ReorderCalc extends RichMapFunction<Change, ReorderInfo> {
                     public ReorderState add(Change value, ReorderState accumulator) {
                         if (value.getOrder() != null) {
                             return new ReorderState(
-                                    accumulator.getOrderCount() + 1,
+                                    accumulator.getOrderCount() + (value.isCreate() ? 1 : 0),
                                     Math.max(accumulator.getLastOrderTime(), value.getOrder().getOrderTime()),
                                     accumulator.getFrequency());
                         } else {
@@ -73,9 +73,9 @@ public class ReorderCalc extends RichMapFunction<Change, ReorderInfo> {
         } else {
             customerId = value.getCustomerPreference().getCustomerId();
         }
-        long expectedNextOrderTime = state.getLastOrderTime();
-        if (state.getFrequency() > 0) {
-            expectedNextOrderTime += state.getFrequency() * DAY_IN_MILLIS;
+        long expectedNextOrderTime = 0;
+        if (state.getFrequency() > 0 && state.getLastOrderTime() > 0) {
+            expectedNextOrderTime = state.getLastOrderTime() + state.getFrequency() * DAY_IN_MILLIS;
         }
         return new ReorderInfo(customerId, state.getOrderCount(), state.getLastOrderTime(), expectedNextOrderTime);
     }

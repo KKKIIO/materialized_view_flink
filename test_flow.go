@@ -33,9 +33,12 @@ type Customer struct {
 
 func main() {
 	var lag int
-	var printMismatch bool
+	var maxNewUserCount int
+	var verbose bool
 	flag.IntVar(&lag, "lag", 3, "lag in seconds")
-	flag.BoolVar(&printMismatch, "print-mismatch", false, "print mismatches")
+	flag.IntVar(&maxNewUserCount, "max-new-user", 100, "max new user count")
+	flag.BoolVar(&verbose, "verbose", false, "verbose log")
+	flag.Parse()
 	if lag < 0 {
 		flag.Usage()
 		return
@@ -74,7 +77,7 @@ func main() {
 	startDay := time.Now()
 	for day := 0; ; day++ {
 		log.Printf("Day %d\n", day)
-		newCustomerCount := random.Intn(100)
+		newCustomerCount := random.Intn(maxNewUserCount)
 		for i := 0; i < newCustomerCount; i++ {
 			newCustomer := faker.Person()
 			firstOrderDay := day + random.Intn(5)
@@ -190,7 +193,7 @@ func main() {
 			}
 		}
 		log.Printf("after waiting %v, mismatch count: %d\n", waitTime, mismatchCount)
-		if len(mismatchSamples) > 0 {
+		if verbose && len(mismatchSamples) > 0 {
 			log.Printf("mismatch samples:\n")
 			for _, s := range mismatchSamples {
 				log.Printf("%s\n", s)

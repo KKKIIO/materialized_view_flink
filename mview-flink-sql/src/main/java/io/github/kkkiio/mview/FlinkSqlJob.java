@@ -17,17 +17,17 @@ public class FlinkSqlJob {
 		env.getConfig().getConfiguration().setString("execution.checkpointing.interval", "3s");
 
 		val cdcOptSQL = String.format(
-				"WITH ('connector'='mysql-cdc', 'hostname'='%s', 'port'='%d','username'='%s', 'password'='%s', 'database-name'='%s', 'table-name'='%%s')",
+				"WITH ('connector'='mysql-cdc', 'hostname'='%s', 'port'='%d','username'='%s', 'password'='%s', 'database-name'='%s', 'table-name'='%%s', 'server-id'='%%d')",
 				mysqlHost, mysqlPort, mysqlUser, mysqlPassword, mysqlDb);
 		env.executeSql(
 				"CREATE TEMPORARY TABLE customer_tab (id BIGINT, first_name STRING, last_name STRING, PRIMARY KEY(id) NOT ENFORCED) "
-						+ String.format(cdcOptSQL, "customer_tab"));
+						+ String.format(cdcOptSQL, "customer_tab", 5401));
 		env.executeSql(
 				"CREATE TEMPORARY TABLE order_tab (id BIGINT, customer_id BIGINT, order_time BIGINT, create_time BIGINT, PRIMARY KEY(id) NOT ENFORCED) "
-						+ String.format(cdcOptSQL, "order_tab"));
+						+ String.format(cdcOptSQL, "order_tab", 5402));
 		env.executeSql(
 				"CREATE TEMPORARY TABLE customer_preference_tab (customer_id BIGINT, frequency INT, PRIMARY KEY(customer_id) NOT ENFORCED) "
-						+ String.format(cdcOptSQL, "customer_preference_tab"));
+						+ String.format(cdcOptSQL, "customer_preference_tab", 5403));
 		env.executeSql(
 				"CREATE TEMPORARY TABLE customer_reorder_tab (customer_id BIGINT, first_name STRING, last_name STRING, order_count INT, last_order_time BIGINT, expected_next_order_time BIGINT, PRIMARY KEY(customer_id) NOT ENFORCED) "
 						+ String.format(
